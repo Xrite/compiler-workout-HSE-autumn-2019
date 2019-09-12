@@ -3,10 +3,10 @@
 (* Opening a library for generic programming (https://github.com/dboulytchev/GT).
    The library provides "@type ..." syntax extension and plugins like show, etc.
 *)
-open GT 
-             
-(* The type for the expression. Note, in regular OCaml there is no "@type..." 
-   notation, it came from GT. 
+open GT
+
+(* The type for the expression. Note, in regular OCaml there is no "@type..."
+   notation, it came from GT.
 *)
 @type expr =
   (* integer constant *) | Const of int
@@ -27,28 +27,53 @@ type state = string -> int
 (* Empty state: maps every variable into nothing. *)
 let empty = fun x -> failwith (Printf.sprintf "Undefined variable %s" x)
 
-(* Update: non-destructively "modifies" the state s by binding the variable x 
+(* Update: non-destructively "modifies" the state s by binding the variable x
    to value v and returns the new state.
 *)
 let update x v s = fun y -> if x = y then v else s y
 
-(* An example of a non-trivial state: *)                                                   
+(* An example of a non-trivial state: *)
 let s = update "x" 1 @@ update "y" 2 @@ update "z" 3 @@ update "t" 4 empty
 
 (* Some testing; comment this definition out when submitting the solution. *)
-let _ =
+(*let _ =
   List.iter
     (fun x ->
        try  Printf.printf "%s=%d\n" x @@ s x
        with Failure s -> Printf.printf "%s\n" s
     ) ["x"; "a"; "y"; "z"; "t"; "b"]
+*)
 
 (* Expression evaluator
 
      val eval : state -> expr -> int
- 
-   Takes a state and an expression, and returns the value of the expression in 
+
+   Takes a state and an expression, and returns the value of the expression in
    the given state.
 *)
-let eval = failwith "Not implemented yet"
-                    
+
+let int_to_bool i = match i with
+  | 0 -> false
+  | _ -> true
+
+let bool_to_int b = match b with
+  | true -> 1
+  | false -> 0
+
+let rec eval = fun s e -> match e with
+  | Const c -> c
+  | Var v -> s v
+  | Binop (op, l, r) -> let fl = eval s l in let fr = eval s r in match op with
+    | "+" -> fl + fr
+    | "-" -> fl - fr
+    | "*" -> fl * fr
+    | "/" -> fl / fr
+    | "%" -> fl mod fr
+    | "<" -> bool_to_int (fl < fr)
+    | ">" -> bool_to_int (fl > fr)
+    | "<=" -> bool_to_int (fl <= fr)
+    | ">=" -> bool_to_int (fl >= fr)
+    | "==" -> bool_to_int (fl = fr)
+    | "!=" -> bool_to_int (fl <> fr)
+    | "&&" -> bool_to_int ((int_to_bool fl) && (int_to_bool fr))
+    | "!!" -> bool_to_int ((int_to_bool fl) || (int_to_bool fr))
