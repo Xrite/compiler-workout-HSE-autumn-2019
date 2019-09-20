@@ -1,5 +1,5 @@
-#!/usr/bin/env
+#!/usr/bin/env bash
 
 make TOPFILE=test000
-./test000.opt >> test000.log
+./test000.opt > test000.log
 diff test000.log orig/test000.log

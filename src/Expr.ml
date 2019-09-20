@@ -50,5 +50,29 @@ let _ =
    Takes a state and an expression, and returns the value of the expression in 
    the given state.
 *)
-let eval = failwith "Not implemented yet"
+let int_to_bool i = match i with
+  | 0 -> false
+  | _ -> true
+
+let bool_to_int b = match b with
+  | true -> 1
+  | false -> 0
+
+let rec eval = fun s e -> match e with
+  | Const c -> c
+  | Var v -> s v
+  | Binop (op, l, r) -> let fl = eval s l in let fr = eval s r in match op with
+    | "+" -> fl + fr
+    | "-" -> fl - fr
+    | "*" -> fl * fr
+    | "/" -> fl / fr
+    | "%" -> fl mod fr
+    | "<" -> bool_to_int (fl < fr)
+    | ">" -> bool_to_int (fl > fr)
+    | "<=" -> bool_to_int (fl <= fr)
+    | ">=" -> bool_to_int (fl >= fr)
+    | "==" -> bool_to_int (fl = fr)
+    | "!=" -> bool_to_int (fl <> fr)
+    | "&&" -> bool_to_int ((int_to_bool fl) && (int_to_bool fr))
+    | "!!" -> bool_to_int ((int_to_bool fl) || (int_to_bool fr))
                     

@@ -1,14 +1,14 @@
 (* Opening a library for generic programming (https://github.com/dboulytchev/GT).
    The library provides "@type ..." syntax extension and plugins like show, etc.
 *)
-open GT 
-    
+open GT
+
 (* Simple expressions: syntax and semantics *)
 module Expr =
   struct
-    
-    (* The type for expressions. Note, in regular OCaml there is no "@type..." 
-       notation, it came from GT. 
+
+    (* The type for expressions. Note, in regular OCaml there is no "@type..."
+       notation, it came from GT.
     *)
     @type t =
     (* integer constant *) | Const of int
@@ -22,14 +22,14 @@ module Expr =
         +, -                 --- addition, subtraction
         *, /, %              --- multiplication, division, reminder
     *)
-                                                            
+
     (* State: a partial map from variables to integer values. *)
     type state = string -> int 
 
     (* Empty state: maps every variable into nothing. *)
     let empty = fun x -> failwith (Printf.sprintf "Undefined variable %s" x)
 
-    (* Update: non-destructively "modifies" the state s by binding the variable x 
+    (* Update: non-destructively "modifies" the state s by binding the variable x
       to value v and returns the new state.
     *)
     let update x v s = fun y -> if x = y then v else s y
@@ -37,14 +37,43 @@ module Expr =
     (* Expression evaluator
 
           val eval : state -> t -> int
- 
-       Takes a state and an expression, and returns the value of the expression in 
+
+       Takes a state and an expression, and returns the value of the expression in
        the given state.
     *)
-    let eval _ = failwith "Not implemented yet"
+    let int_to_bool i = match i with
+      | 0 -> false
+      | _ -> true
+
+    let bool_to_int b = match b with
+      | true -> 1
+      | false -> 0
+
+    let eval_one op l r =
+      match op with
+      | "+" -> l + r
+      | "-" -> l - r
+      | "*" -> l * r
+      | "/" -> l / r
+      | "%" -> l mod r
+      | "<" -> bool_to_int (l < r)
+      | ">" -> bool_to_int (l > r)
+      | "<=" -> bool_to_int (l <= r)
+      | ">=" -> bool_to_int (l >= r)
+      | "==" -> bool_to_int (l = r)
+      | "!=" -> bool_to_int (l <> r)
+      | "&&" -> bool_to_int ((int_to_bool l) && (int_to_bool r))
+      | "!!" -> bool_to_int ((int_to_bool l) || (int_to_bool r))
+
+    let rec eval = fun s e -> match e with
+      | Const c -> c
+      | Var v -> s v
+      | Binop (op, l, r) -> eval_one op (eval s l) (eval s r)
 
   end
-                    
+
+
+
 (* Simple statements: syntax and sematics *)
 module Stmt =
   struct
@@ -65,14 +94,18 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
-                                                         
+    let rec eval (st, i, o) t = match t with
+      | Read s -> let head :: tail = i in (Expr.update s head st, tail, o)
+      | Write e -> (st, i, o @ [Expr.eval st e])
+      | Assign (s, e) -> (Expr.update s (Expr.eval st e) st, i, o)
+      | Seq (s1, s2) -> let c' = eval (st, i, o) s1 in eval c' s2
+
   end
 
 (* The top-level definitions *)
 
 (* The top-level syntax category is statement *)
-type t = Stmt.t    
+type t = Stmt.t
 
 (* Top-level evaluator
 
