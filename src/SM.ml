@@ -68,14 +68,15 @@ let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
-let rec compile =
-  let rec expr = function
-  | Expr.Var   x          -> [LD x]
-  | Expr.Const n          -> [CONST n]
-  | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+let rec compile stmt =
+  let rec compile_expr expr =
+    match expr with
+    | Expr.Const c -> [CONST c]
+    | Expr.Var x -> [LD x]
+    | Expr.Binop (op, e1, e2) -> compile_expr e2 @ compile_expr e1 @ [BINOP op]
   in
-  function
-  | Stmt.Seq (s1, s2)  -> compile s1 @ compile s2
-  | Stmt.Read x        -> [READ; ST x]
-  | Stmt.Write e       -> expr e @ [WRITE]
-  | Stmt.Assign (x, e) -> expr e @ [ST x]
+  match stmt with
+  | Stmt.Read x -> [READ; ST x]
+  | Stmt.Write e -> compile_expr e @ [WRITE]
+  | Stmt.Assign (x, e) -> compile_expr e @ [ST x]
+  | Stmt.Seq (s1, s2) -> compile s1 @ compile s2
