@@ -85,7 +85,7 @@ open SM
 let complie_i env = function
   | BINOP op -> (match op with
         | "+" | "-" | "*" | "&&" | "!!" | "^" -> 
-                let b, a, env'  = env#pop2 in
+                let a, b, env'  = env#pop2 in
                 let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax); 
                         Binop (op, b, eax); 
@@ -99,21 +99,22 @@ let complie_i env = function
                         | "==" -> "e"
                         | "!=" -> "ne"
                 in
-                let b, a, env'  = env#pop2 in
+                let a, b, env'  = env#pop2 in
                 let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax);
                         Binop ("cmp", b, eax);
+                        Mov ((L 0), eax);
                         Set (get_cc op, "%al"); 
                         Mov (eax, dest)]
         | "/" ->
-                let b, a, env'  = env#pop2 in
+                let a, b, env'  = env#pop2 in
                 let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax);
                         Cltd;
                         IDiv b;
                         Mov (eax, dest)]
         | "%" ->
-                let b, a, env'  = env#pop2 in
+                let a, b, env'  = env#pop2 in
                 let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax);
                         Cltd;
