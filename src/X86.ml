@@ -80,7 +80,73 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile _ _ = failwith "Not yet implemented"
+
+
+let complie_i env = 
+  | BINOP op -> match op with
+        | "+" | "-" | "*" | "&&" | "!!" | "^" -> 
+                let a, b, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax); 
+                        Binop (op, eax, b); 
+                        Mov (eax, dest)]
+        | "<" | ">" | "<=" | ">=" | "==" | "!=" -> 
+                let get_cc = function 
+                        | "<"  -> "l"
+                        | ">"  -> "g"
+                        | "<=" -> "le"
+                        | ">=" -> "ge"
+                        | "==" -> "e"
+                        | "!=" -> "ne"
+                let a, b, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax);
+                        Binop ("cmp", eax, b);
+                        Set (get_cc op, "%al"); 
+                        Mov (eax, dest)]
+        | "/" ->
+                let a, b, env'  = env#pop2 in
+                let dest, env'' = env#allocate in
+                env'', [Mov (a, eax);
+                        Cltd;
+                        IDiv b;
+                        Mov (eax, dest)]
+        | "%" ->
+                let a, b, env'  = env#pop2 in
+                let dest, env'' = env#allocate in
+                env'', [Mov (a, eax);
+                        Cltd;
+                        IDiv b;
+                        Mov (edx, dest)]
+  | CONST c ->
+        let dest, env' = env#allocate in
+        env', [Mov ((L c), dest)]
+  | READ -> 
+        let dest, env' = env#allocate in
+        env', [Call "Lread";
+               Mov (eax, dest)]
+  | WRITE ->
+        let a, env' = env#pop in
+        env', [Push a;
+               Call "Lwrite";]
+  | LD x -> 
+        let var        = env#loc x in
+        let dest, env' = env#allocate in 
+        env', [Mov ((M var), eax);
+               Mov (eax, dest)]
+  | ST x ->
+        let var, env'     = env#global x in
+        let source, env'' = env#pop in
+        env'', [Mov (source, eax);
+                Mov (eax, (M var))]
+
+
+let compile env =
+  | [] -> env, []
+  | i::tail -> 
+        let env', compiled = complie_i env i in
+        let env'', x86_prg = compile env' tail in
+        env'', compiled @ x86_prg
 
 (* A set of strings *)           
 module S = Set.Make (String)
