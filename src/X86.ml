@@ -82,13 +82,13 @@ open SM
 *)
 
 
-let complie_i env = 
-  | BINOP op -> match op with
+let complie_i env = function
+  | BINOP op -> (match op with
         | "+" | "-" | "*" | "&&" | "!!" | "^" -> 
-                let a, b, env'  = env#pop2 in
+                let b, a, env'  = env#pop2 in
                 let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax); 
-                        Binop (op, eax, b); 
+                        Binop (op, b, eax); 
                         Mov (eax, dest)]
         | "<" | ">" | "<=" | ">=" | "==" | "!=" -> 
                 let get_cc = function 
@@ -98,26 +98,27 @@ let complie_i env =
                         | ">=" -> "ge"
                         | "==" -> "e"
                         | "!=" -> "ne"
-                let a, b, env'  = env#pop2 in
+                in
+                let b, a, env'  = env#pop2 in
                 let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax);
-                        Binop ("cmp", eax, b);
+                        Binop ("cmp", b, eax);
                         Set (get_cc op, "%al"); 
                         Mov (eax, dest)]
         | "/" ->
-                let a, b, env'  = env#pop2 in
-                let dest, env'' = env#allocate in
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax);
                         Cltd;
                         IDiv b;
                         Mov (eax, dest)]
         | "%" ->
-                let a, b, env'  = env#pop2 in
-                let dest, env'' = env#allocate in
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
                 env'', [Mov (a, eax);
                         Cltd;
                         IDiv b;
-                        Mov (edx, dest)]
+                        Mov (edx, dest)])
   | CONST c ->
         let dest, env' = env#allocate in
         env', [Mov ((L c), dest)]
@@ -128,24 +129,26 @@ let complie_i env =
   | WRITE ->
         let a, env' = env#pop in
         env', [Push a;
-               Call "Lwrite";]
+               Call "Lwrite";
+               Pop eax]
   | LD x -> 
         let var        = env#loc x in
         let dest, env' = env#allocate in 
         env', [Mov ((M var), eax);
                Mov (eax, dest)]
   | ST x ->
-        let var, env'     = env#global x in
-        let source, env'' = env#pop in
+        let env'          = env#global x in
+        let source, env'' = env'#pop in
+        let var           = env#loc x in
         env'', [Mov (source, eax);
                 Mov (eax, (M var))]
 
 
-let compile env =
+let rec compile env = function
   | [] -> env, []
-  | i::tail -> 
+  | i::is -> 
         let env', compiled = complie_i env i in
-        let env'', x86_prg = compile env' tail in
+        let env'', x86_prg = compile env' is in
         env'', compiled @ x86_prg
 
 (* A set of strings *)           
