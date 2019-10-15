@@ -4,7 +4,7 @@
 open GT
 
 (* Opening a library for combinator-based syntax analysis *)
-open Ostap.Combinators
+open Ostap
 
 (* States *)
 module State =
@@ -97,7 +97,37 @@ module Expr =
     *)
 
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+    parse:
+      !(Util.expr
+	  (fun x -> x)
+	  [|
+	    `Lefta, [
+	      ostap("!!"), fun x y -> Binop ("!!", x, y)
+	    ];
+	    `Lefta, [
+	      ostap("&&"), fun x y -> Binop ("&&", x, y)
+	    ];
+	    `Nona, [
+	      ostap("=="), (fun x y -> Binop ("==", x, y));
+	      ostap("!="), (fun x y -> Binop ("!=", x, y));
+	      ostap("<="), (fun x y -> Binop ("<=", x, y));
+	      ostap("<"),  (fun x y -> Binop ("<", x, y));
+	      ostap(">="), (fun x y -> Binop (">=", x, y));
+	      ostap(">"),  (fun x y -> Binop (">", x, y));
+	    ];
+	    `Lefta, [
+	      ostap("+"), (fun x y -> Binop ("+", x, y));
+	      ostap("-"), (fun x y -> Binop ("-", x, y));
+	    ];
+	    `Lefta, [
+	      ostap("*"), (fun x y -> Binop ("*", x, y));
+	      ostap("/"), (fun x y -> Binop ("/", x, y));
+	      ostap("%"), (fun x y -> Binop ("%", x, y));
+	    ];
+	  |]
+	  primary
+       );
+    primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" parse -")"
     )
 
   end
@@ -132,11 +162,55 @@ module Stmt =
 
        which returns a list of formal parameters and a body for given definition
     *)
-    let rec eval _ = failwith "Not Implemented Yet"
+
+    let rec eval env ((st, i, o) as conf) t = match t with
+      | Read s -> let head :: tail = i in (State.update s head st, tail, o)
+      | Write e -> (st, i, o @ [Expr.eval st e])
+      | Assign (s, e) -> (State.update s (Expr.eval st e) st, i, o)
+      | Seq (s1, s2) -> let c' = eval env (st, i, o) s1 in eval env c' s2
+      | Skip -> conf
+      | If (cond, s1, s2) -> eval env (st, i, o) (if Expr.eval st cond == 1 then s1 else s2)
+      | While (cond, s) -> if Expr.eval st cond == 0 then conf else eval env conf (Seq (s, While (cond, s)))
+      | Repeat (s, cond) -> let (st', _, _) as conf' = eval env conf s in
+                            if Expr.eval st' cond != 0 then conf' else eval env conf' (Repeat (s, cond))
+      | Call (f, args_e) -> let (args, locals, body) = env#definition f in
+                            let update_st = fun s a e -> State.update a (Expr.eval st e) s in
+                            let st_enter = State.push_scope st (args @ locals) in
+                            let st_sub = List.fold_left2 update_st st_enter args args_e in
+                            let st', i', o' = eval env (st_sub, i, o) body in
+                            State.drop_scope st' st, i', o'
+
+
+
+    let rec build_if elifs els = 
+            match elifs with
+            | (cond, s)::es -> If (cond, s, build_if es els)
+            | [] -> match els with
+                    | None -> Skip
+                    | Some s' -> s'
+
+    let build_for s1 e s2 s3 = Seq (s1, While (e, Seq (s3, s2)))
                                 
     (* Statement parser *)
-    ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+    ostap (
+      expr: !(Expr.parse);
+      simple_stmt: read | write | assign | skip | if_stmt | while_stmt | repeat_stmt | for_stmt | call;
+
+      read: "read" "(" x:IDENT ")" {Read x};
+      write: "write" "(" e:expr ")" {Write e};
+      assign: x:IDENT ":=" e:expr {Assign (x, e)};
+      skip: "skip" {Skip};
+      if_stmt: "if" e:expr "then" s:parse elifs:elif_block* els:else_block? "fi" {If (e, s, build_if elifs els)};
+      else_block: -"else" parse;
+      elif_block: -"elif" expr -"then" parse;
+      while_stmt: "while" e:expr "do" s:parse "od" {While (e, s)};
+      repeat_stmt: "repeat" s:parse "until" e:expr {Repeat (s, e)};
+      for_stmt: "for" s1:parse "," e:expr "," s2:parse "do" s3:parse "od" {build_for s1 e s2 s3};
+
+      parse_args: !(Util.list0By)[ostap (",")][expr];
+      call: name:IDENT "(" args:parse_args ")" {Call (name, args)};
+
+      parse: <s::ss> : !(Util.listBy)[ostap (";")][simple_stmt] {List.fold_left (fun sl sr -> Seq (sl, sr)) s ss}
     )
       
   end
@@ -149,7 +223,12 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      ident: IDENT;
+      parse_args: !(Util.list0By)[ostap (",")][ident];
+      parse_some_locals: -"local" !(Util.listBy)[ostap (",")][ident];
+      parse_locals: l:parse_some_locals? {match l with | None -> [] | Some ls -> ls};
+      parse: "fun" name:IDENT "(" args:parse_args ")" locals:parse_locals "{" body:!(Stmt.parse) "}"
+        {name, (args, locals, body)}
     )
 
   end

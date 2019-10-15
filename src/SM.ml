@@ -31,7 +31,63 @@ type config = (prg * State.t) list * int list * Stmt.config
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)                         
-let rec eval _ = failwith "Not Implemented Yet"
+let rec eval env (cs, stack, conf) = function
+  | [] -> cs, stack, conf
+  | (BINOP op)::ps ->
+    let y::x::xs = stack in
+    let res      = Expr.to_func op x y in
+    eval env (cs, res::xs, conf) ps
+  | (CONST c)::ps ->
+    eval env (cs, c::stack, conf) ps
+  | READ::ps ->
+    let s, i, o = conf in
+    let z::zs   = i in
+    eval env (cs, z::stack, (s, zs, o)) ps
+  | WRITE::ps ->
+    let s, i, o = conf in
+    let z::zs   = stack in
+    eval env (cs, zs, (s, i, o @ [z])) ps
+  | (LD x)::ps ->
+    let s, _, _ = conf in
+    eval env (cs, (State.eval s x)::stack, conf) ps
+  | (ST x)::ps ->
+    let s, i, o = conf in
+    let z::zs   = stack in
+    eval env (cs, zs, (State.update x z s, i, o)) ps
+  | (LABEL l)::ps ->
+    eval env (cs, stack, conf) ps 
+  | (JMP l)::ps ->
+    eval env (cs, stack, conf) (env#labeled l)
+  | (CJMP ("z", l))::ps -> 
+    let z::zs = stack in
+    eval env (cs, stack, conf) (if z == 0 then env#labeled l else ps)
+  | (CJMP ("nz", l))::ps -> 
+    let z::zs = stack in
+    eval env (cs, stack, conf) (if z != 0 then env#labeled l else ps)
+  | (CJMP (cc, l))::ps -> failwith ("Unknown CJMP argument: " ^ cc)
+  | (BEGIN (args, locals))::ps -> let n = List.length args in
+                            let rec take n = function
+                                    | [] when n > 0 -> failwith "not enough args"
+                                    | [] -> []
+                                    | x::xs when n > 0 -> x::(take (n - 1) xs)
+                                    | _ when n = 0 -> []
+                            in 
+                            let zs =  List.rev (take n stack) in
+                            let st, i, o = conf in
+                            let update_st = fun s a e -> State.update a e s in
+                            let st_enter = State.push_scope st (args @ locals) in
+                            let st_sub = List.fold_left2 update_st st_enter args zs in
+                            eval env (cs, stack, (st_sub, i, o)) ps
+  | (CALL f)::ps -> let st, i, o = conf in
+                   eval env ((ps, st)::cs, stack, conf) (env#labeled f)
+  | (END)::_ -> match cs with 
+                | [] -> cs, stack, conf
+                | (ps', st')::cs_rest ->
+                        let st, i, o = conf in
+                        let new_st = State.drop_scope st st' in
+                        eval env (cs_rest, stack, (new_st, i, o)) ps'
+
+
 
 (* Top-level evaluation
 
@@ -56,4 +112,61 @@ let run p i =
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
-let compile _ = failwith "Not Implemented Yet"
+class ast_env =
+  object (self)
+    val labels_cnt = 0
+
+    method new_else_label = "else_" ^ (string_of_int labels_cnt), {< labels_cnt = labels_cnt + 1 >}
+
+    method new_fi_label = "fi_" ^ (string_of_int labels_cnt), {< labels_cnt = labels_cnt + 1 >}
+
+    method new_do_label = "do_" ^ (string_of_int labels_cnt), {< labels_cnt = labels_cnt + 1 >}
+
+    method new_od_label = "od_" ^ (string_of_int labels_cnt), {< labels_cnt = labels_cnt + 1 >}
+
+    method new_rep_label = "rep_" ^ (string_of_int labels_cnt), {< labels_cnt = labels_cnt + 1 >}
+
+    method proc_label f = "proc_" ^ f
+  end
+
+let rec compile_stmt (env : ast_env) =
+  let rec compile_expr = function
+  | Expr.Var   x          -> [LD x]
+  | Expr.Const n          -> [CONST n]
+  | Expr.Binop (op, x, y) -> compile_expr x @ compile_expr y @ [BINOP op]
+  in
+  function
+  | Stmt.Seq (s1, s2)   -> let env', sm_s1  = compile_stmt env s1 in
+                           let env'', sm_s2 = compile_stmt env' s2 in
+                           env'', sm_s1 @ sm_s2
+  | Stmt.Read x         -> env, [READ; ST x]
+  | Stmt.Write e        -> env, compile_expr e @ [WRITE]
+  | Stmt.Assign (x, e)  -> env, compile_expr e @ [ST x]
+  | Stmt.Skip           -> env, []
+  | Stmt.If (e, s1, s2) -> let label_else, env1 = env#new_else_label in
+                           let label_fi, env2   = env1#new_fi_label in
+                           let env3, sm_s1      = compile_stmt env2 s1 in
+                           let env4, sm_s2      = compile_stmt env3 s2 in
+                           env4, compile_expr e @ [CJMP ("z", label_else)] @ sm_s1 @ [JMP label_fi; LABEL label_else] @ sm_s2 @ [LABEL label_fi]
+  | Stmt.While (e, s)   -> let label_do, env1 = env#new_do_label in
+                           let label_od, env2 = env1#new_od_label in
+                           let env3, sm_s     = compile_stmt env2 s in
+                           env3, [LABEL label_do] @ compile_expr e @ [CJMP ("z", label_od)] @ sm_s @ [JMP label_do; LABEL label_od]
+  | Stmt.Repeat (s, e)  -> let label_rep, env' = env#new_rep_label in
+                           let env'', sm_s     = compile_stmt env' s in
+                           env'', [LABEL label_rep] @ sm_s @ compile_expr e @ [CJMP ("z", label_rep)]
+  | Stmt.Call (f, es)   -> let args = List.flatten (List.map compile_expr es) in
+                           env, args @ [CALL (env#proc_label f)]
+
+let rec compile_definitions (env : ast_env) = function
+  | [] -> env, []
+  | (f, (args, locals, body))::ds ->
+        let env', compiled_body  = compile_stmt env body in
+        let env'', compiled_rest = compile_definitions env' ds in
+        env'', [LABEL (env#proc_label f); BEGIN (args, locals)] @ compiled_body @ [END] @ compiled_rest
+
+let compile ast = 
+        let definitions, stmts = ast in
+        let env, compiled_definitions = compile_definitions (new ast_env) definitions in
+        let _, compiled_stmts = compile_stmt env stmts in
+        compiled_stmts @ [END] @ compiled_definitions 
