@@ -39,7 +39,7 @@ let main =
 	let input = read [] in	
 	let output = 
 	  if interpret 
-	  then Language.eval prog input 
+          then Language.eval prog input
 	  else SM.run (SM.compile prog) input
 	in
 	List.iter (fun i -> Printf.printf "%d\n" i) output
