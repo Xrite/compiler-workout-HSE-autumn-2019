@@ -90,7 +90,130 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code = failwith "Not implemented"
+let complie_i env = function
+  | BINOP op -> (match op with
+        | "+" | "-" | "*" | "^" -> 
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax); 
+                        Binop (op, b, eax); 
+                        Mov (eax, dest)]
+        | "&&" | "!!" ->
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax); 
+                        Mov (b, edx);
+                        Binop ("cmp", (L 0), eax);
+                        Mov ((L 0), eax);
+                        Set ("ne", "%al");
+                        Binop ("cmp", (L 0), edx);
+                        Mov ((L 0), edx);
+                        Set ("ne", "%dl");
+                        Binop (op, edx, eax);
+                        Mov ((L 0), eax);
+                        Set ("nz", "%al"); 
+                        Mov (eax, dest)]
+        | "<" | ">" | "<=" | ">=" | "==" | "!=" -> 
+                let get_cc = function 
+                        | "<"  -> "l"
+                        | ">"  -> "g"
+                        | "<=" -> "le"
+                        | ">=" -> "ge"
+                        | "==" -> "e"
+                        | "!=" -> "ne"
+                in
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax);
+                        Binop ("cmp", b, eax);
+                        Mov ((L 0), eax);
+                        Set (get_cc op, "%al"); 
+                        Mov (eax, dest)]
+        | "/" ->
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax);
+                        Cltd;
+                        IDiv b;
+                        Mov (eax, dest)]
+        | "%" ->
+                let b, a, env'  = env#pop2 in
+                let dest, env'' = env'#allocate in
+                env'', [Mov (a, eax);
+                        Cltd;
+                        IDiv b;
+                        Mov (edx, dest)])
+  | CONST c ->
+        let dest, env' = env#allocate in
+        env', [Mov ((L c), dest)]
+  | READ -> 
+        let dest, env' = env#allocate in
+        env', [Call "Lread";
+               Mov (eax, dest)]
+  | WRITE ->
+        let a, env' = env#pop in
+        env', [Push a;
+               Call "Lwrite";
+               Pop eax]
+  | LD x -> 
+        let var        = env#loc x in
+        let dest, env' = env#allocate in 
+        env', [Mov (var, eax);
+               Mov (eax, dest)]
+  | ST x ->
+        let env'          = env#global x in
+        let source, env'' = env'#pop in
+        let var           = env#loc x in
+        env'', [Mov (source, eax);
+                Mov (eax, var)]
+  | LABEL l -> 
+        env, [Label l]
+  | JMP l -> 
+        env, [Jmp l]
+  | CJMP (cc, l) ->
+        let a, _ = env#pop in
+        env, [Mov (a, eax);
+              Binop ("cmp", (L 0), eax);
+              CJmp (cc, l)]
+  | CALL (f, n, p) ->
+                        let rec push_all env = function
+                                | 0 -> ([], env)
+                                | n -> 
+                                                let arg, env' = env#pop in
+                                                let tail, env'' = push_all env' (n - 1) in
+                                                ((Push arg)::tail, env'')
+                        in
+                        let args, env' = push_all env n in
+                        let live = env'#live_registers in
+                        let store = List.map (fun x -> Push x) live in
+                        let restore = List.map (fun x -> Pop x) (List.rev live) in
+                        let head = store @ args @ [Call f; Binop ("+", L (n * 4), esp)] in
+                        if p == false then
+                                env', head @ restore
+                        else
+                                let dest, env'' = env'#allocate in
+                                env'', head @ [Mov (eax, dest)] @ restore
+  | BEGIN (f, a, l) ->
+                  let env' = env#enter f a l in
+                  let prologue = [Push ebp; Mov (esp, ebp); Binop ("-", M ("$" ^ env'#lsize), esp)] in
+                  env', prologue
+  | END ->
+                  let epilogue = [Label env#epilogue; Mov (ebp, esp); Pop ebp; Meta (Printf.sprintf "\t.set\t%s,\t%d" env#lsize (env#allocated * 4)); Ret] in
+                  env, epilogue
+  | RET p -> 
+                  if p == true then
+                          let res, env' = env#pop in
+                          env', [Mov (res, eax); Jmp env'#epilogue]
+                  else
+                          env, [Jmp env#epilogue]
+
+
+let rec compile env = function
+  | [] -> env, []
+  | i::is -> 
+        let env', compiled = complie_i env i in
+        let env'', x86_prg = compile env' is in
+        env'', compiled @ x86_prg
                                 
 (* A set of strings *)           
 module S = Set.Make (String)
@@ -185,4 +308,4 @@ let build prog name =
   close_out outf;
   let inc = try Sys.getenv "RC_RUNTIME" with _ -> "../runtime" in
   Sys.command (Printf.sprintf "gcc -m32 -o %s %s/runtime.o %s.s" name inc name)
- 
+  
