@@ -253,9 +253,11 @@ module Stmt =
       write: "write" "(" e:expr ")" {Write e};
       assign: x:IDENT ":=" e:expr {Assign (x, e)};
       skip: "skip" {Skip};
-      if_stmt: "if" e:expr "then" s:parse elifs:elif_block* els:else_block? "fi" {If (e, s, build_if elifs els)};
+      (*if_stmt: "if" e:expr "then" s:parse elifs:elif_block* els:else_block? "fi" {If (e, s, build_if elifs els)};
       else_block: -"else" parse;
-      elif_block: -"elif" expr -"then" parse;
+      elif_block: -"elif" expr -"then" parse;*)
+      if_stmt: "if" e:expr "then" s:parse els:else_block {If (e, s, els)};
+      else_block: -"fi" {Skip} | -"else" parse -"fi" | -"elif" e:expr -"then" s:parse els:else_block {If (e, s, els)};
       while_stmt: "while" e:expr "do" s:parse "od" {While (e, s)};
       repeat_stmt: "repeat" s:parse "until" e:expr {Repeat (s, e)};
       for_stmt: "for" s1:parse "," e:expr "," s2:parse "do" s3:parse "od" {build_for s1 e s2 s3};
