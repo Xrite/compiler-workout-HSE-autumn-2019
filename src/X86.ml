@@ -119,7 +119,6 @@ let call_fun env f n p =
     | "Bsexp" -> (List.map (fun x -> Push x) args) @ [Push (L n)]    
     | "Bsta" -> 
         let x::v::args = args in
-        let args = List.rev args in
         (List.map (fun x -> Push x) args) @ [Push x; Push v; Push (L (n - 2))]
     | _ -> List.map (fun x -> Push x) args
   in
